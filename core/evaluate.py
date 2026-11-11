@@ -18,17 +18,17 @@ def _key(df: pd.DataFrame) -> pd.Series:
     return df["season"] * 100 + df["round"]
 
 
-def is_holdout(season: int, event: str) -> bool:
-    return event in HOLDOUT.get(season, [])
+def is_holdout(season: int, circuit_id: str) -> bool:
+    return circuit_id in HOLDOUT.get(season, [])
 
 
 def walk_forward(results: pd.DataFrame, predictor: Predictor, visible_cols: list,
                  seasons=EVAL_SEASONS, holdout: bool = False) -> pd.DataFrame:
     results = results.assign(key=_key(results))
-    races = results[["season", "round", "event", "key"]].drop_duplicates().sort_values("key")
+    races = results[["season", "round", "event", "circuit_id", "key"]].drop_duplicates().sort_values("key")
     rows = []
     for r in races.itertuples():
-        if r.season not in seasons or is_holdout(r.season, r.event) != holdout:
+        if r.season not in seasons or is_holdout(r.season, r.circuit_id) != holdout:
             continue
         hist = results[results["key"] < r.key].drop(columns="key")
         full = results[results["key"] == r.key]

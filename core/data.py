@@ -105,7 +105,7 @@ def build_season(season: int, refresh: bool = False) -> pd.DataFrame:
     if sp.empty:
         sp = pd.DataFrame(columns=on + ["sprint_finish", "sprint_points"])
     df = df.merge(sp, on=on, how="left")
-    df["sprint_points"] = df["sprint_points"].fillna(0.0)
+    df["sprint_points"] = pd.to_numeric(df["sprint_points"]).fillna(0.0)
     df["is_sprint_weekend"] = df.groupby("round")["sprint_finish"].transform(lambda s: s.notna().any())
 
     # Grid 0 = pit-lane start -> back of the grid.

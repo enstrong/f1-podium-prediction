@@ -12,9 +12,9 @@ CURRENT_SEASON = 2026
 EVAL_SEASONS = [2025, 2026]
 
 # Final holdout: scored ONCE at the end with --holdout. Never tune against these.
-# Matched against FastF1's EventName.
+# Matched on circuit_id (event names change year to year: "São Paulo" vs "Brazilian" GP etc.).
 HOLDOUT = {
-    2026: ["United States Grand Prix", "Mexico City Grand Prix", "São Paulo Grand Prix"],
+    2026: ["americas", "rodriguez", "interlagos"],  # US, Mexico City, Brazil
 }
 
 # Columns a predictor is allowed to see for the race it's predicting. Everything else
