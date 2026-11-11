@@ -15,11 +15,11 @@ def fake_results(seasons=(2024, 2025), rounds=4, n=10, seed=0):
             grid = rng.permutation(n) + 1
             finish = np.argsort(np.argsort(grid + rng.normal(0, 2, n))) + 1
             for d in range(n):
-                rows.append(dict(season=s, round=r, event=f"GP{r}", location="x", country="x",
+                rows.append(dict(season=s, round=r, event=f"GP{r}", circuit_id=f"c{r}", location="x", country="x",
                                  date=pd.Timestamp(s, 1, 1) + pd.Timedelta(days=7 * r), is_sprint_weekend=False,
                                  driver_id=f"d{d}", driver=f"D{d}", driver_name=f"Driver {d}",
                                  team_id=f"t{d // 2}", team=f"T{d // 2}", grid=grid[d], quali=grid[d],
-                                 pitlane_start=False, finish=finish[d], points=max(0, 11 - finish[d]),
+                                 pitlane_start=False, finish=finish[d], points=max(0, 11 - finish[d]), sprint_points=0.0,
                                  status="Finished", classified=str(finish[d]), dnf=False))
     return pd.DataFrame(rows)
 

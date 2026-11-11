@@ -7,3 +7,4 @@ cache/
 data/
 */reports/
 .pytest_cache/
+reports/

@@ -18,12 +18,12 @@ def random_order(hist: pd.DataFrame, race: pd.DataFrame) -> np.ndarray:
 
 
 def championship(hist: pd.DataFrame, race: pd.DataFrame) -> np.ndarray:
-    """Current-season points so far (last season's at round 1). Race points only, no sprints yet."""
+    """Current-season points so far (last season's at round 1). Includes sprint points."""
     season = race["season"].iloc[0]
     cur = hist[hist["season"] == season]
     if cur.empty:
         cur = hist[hist["season"] == season - 1]
-    pts = cur.groupby("driver_id")["points"].sum()
+    pts = (cur["points"] + cur["sprint_points"]).groupby(cur["driver_id"]).sum()
     return race["driver_id"].map(pts).fillna(-1).to_numpy()
 
 

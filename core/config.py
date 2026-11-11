@@ -19,7 +19,7 @@ HOLDOUT = {
 
 # Columns a predictor is allowed to see for the race it's predicting. Everything else
 # (finish, points, status, ...) is hidden by the evaluator, so leakage is impossible.
-EVENT_COLS = ["season", "round", "event", "location", "country", "date", "is_sprint_weekend"]
+EVENT_COLS = ["season", "round", "event", "circuit_id", "location", "country", "date", "is_sprint_weekend"]
 ENTRY_COLS = ["driver_id", "driver", "driver_name", "team_id", "team"]
 PRE_WEEKEND_COLS = EVENT_COLS + ENTRY_COLS
 POST_QUALI_COLS = PRE_WEEKEND_COLS + ["quali", "grid", "pitlane_start"]

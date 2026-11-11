@@ -46,6 +46,9 @@ def compare(results: pd.DataFrame, predictors: dict, visible_cols: list, **kw) -
     per_race, summary = [], {}
     for name, f in predictors.items():
         df = walk_forward(results, f, visible_cols, **kw).assign(model=name)
+        if df.empty:
+            raise SystemExit(f"No races to score for {kw}. Is the data pulled? Seasons in data: "
+                             f"{sorted(results['season'].unique())}")
         per_race.append(df)
         summary[name] = df[METRICS].mean().round(3).to_dict() | {"races": len(df)}
     return pd.DataFrame(summary).T, pd.concat(per_race, ignore_index=True)

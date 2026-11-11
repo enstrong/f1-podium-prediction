@@ -18,21 +18,22 @@ notebooks/       exploration only, real logic lives in .py
 tests/
 ```
 
-## Setup (macOS, uv)
+## Setup (conda)
 
 ```bash
-uv sync                          # creates .venv, installs everything
-uv run python -m core.data       # pull 2018-2026 results -> data/results.parquet (first run ~15-30 min, then cached)
-uv run python -m core.data --refresh   # after each new race weekend
-uv run pytest
+conda create -n f1 python=3.12 -y && conda activate f1
+pip install -e . pytest jupyterlab
+python -m core.data              # 2018-2026 race/quali/sprint results -> data/results.parquet (~2 min, cached)
+python -m core.data --refresh    # after each new race weekend
+pytest
 ```
 
 ## Evaluate
 
 ```bash
-uv run python pre-weekend/baselines.py
-uv run python post-quali/baselines.py
-uv run python post-quali/baselines.py --seasons 2023 2024 2025 2026
+python pre-weekend/baselines.py
+python post-quali/baselines.py
+python post-quali/baselines.py --seasons 2023 2024 2025 2026
 ```
 
 **Walk-forward:** every race in `EVAL_SEASONS` is predicted using only races strictly before it.
@@ -61,5 +62,4 @@ Add it to `PREDICTORS` in the mode's script, or make a new script in that folder
 
 ## Known gaps / TODO
 
-- Sprint results not pulled yet (championship baseline uses GP points only)
 - Pre-weekend mode knows the actual starters (slightly optimistic vs. real entry list)
