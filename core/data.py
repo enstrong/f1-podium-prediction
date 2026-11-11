@@ -60,6 +60,17 @@ def fetch(season: int, endpoint: str, refresh: bool = False) -> list:
     return out
 
 
+def _secs(t) -> float:
+    """'1:29.708' -> 89.708. Missing / empty / no time set -> NaN."""
+    if not t or not isinstance(t, str) or ":" not in t:
+        return float("nan")
+    m, sec = t.split(":")
+    try:
+        return int(m) * 60 + float(sec)
+    except ValueError:
+        return float("nan")
+
+
 def _driver_rows(race: dict, key: str) -> list:
     return [(int(race["season"]), int(race["round"]), r) for r in race.get(key, [])]
 
@@ -95,13 +106,15 @@ def build_season(season: int, refresh: bool = False) -> pd.DataFrame:
             })
     df = pd.DataFrame(rows)
 
-    q = pd.DataFrame([{"season": s, "round": rd, "driver_id": r["Driver"]["driverId"], "quali": int(r["position"])}
+    q = pd.DataFrame([{"season": s, "round": rd, "driver_id": r["Driver"]["driverId"], "quali": int(r["position"]),
+                       "q1": _secs(r.get("Q1")), "q2": _secs(r.get("Q2")), "q3": _secs(r.get("Q3"))}
                       for race in quali for s, rd, r in _driver_rows(race, "QualifyingResults")])
     sp = pd.DataFrame([{"season": s, "round": rd, "driver_id": r["Driver"]["driverId"],
                         "sprint_finish": int(r["position"]), "sprint_points": float(r["points"])}
                        for race in sprint for s, rd, r in _driver_rows(race, "SprintResults")])
     on = ["season", "round", "driver_id"]
-    df = df.merge(q, on=on, how="left") if not q.empty else df.assign(quali=float("nan"))
+    df = df.merge(q, on=on, how="left") if not q.empty else df.assign(quali=float("nan"), q1=float("nan"),
+                                                                       q2=float("nan"), q3=float("nan"))
     if sp.empty:
         sp = pd.DataFrame(columns=on + ["sprint_finish", "sprint_points"])
     df = df.merge(sp, on=on, how="left")
@@ -114,6 +127,37 @@ def build_season(season: int, refresh: bool = False) -> pd.DataFrame:
     df["grid"] = df["grid_raw"].where(df["grid_raw"] > 0, n)
     df["dnf"] = ~df["classified"].str.isdigit()
     return df
+
+
+def schedule(season: int, refresh: bool = False) -> pd.DataFrame:
+    """The season calendar: round, event, circuit, date, sprint weekend or not. Cached."""
+    path = RAW_DIR / f"{season}_schedule.json"
+    if path.exists() and not refresh:
+        races = json.loads(path.read_text())
+    else:
+        races = _get(f"{BASE}/{season}.json", {"limit": 100})["RaceTable"]["Races"]
+        RAW_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(races))
+    return pd.DataFrame([{
+        "season": int(r["season"]), "round": int(r["round"]), "event": r["raceName"],
+        "circuit_id": r["Circuit"]["circuitId"], "location": r["Circuit"]["Location"]["locality"],
+        "country": r["Circuit"]["Location"]["country"], "date": pd.Timestamp(r["date"]),
+        "is_sprint_weekend": "Sprint" in r,
+    } for r in races])
+
+
+def qualifying(season: int, rnd: int) -> pd.DataFrame:
+    """One round's qualifying (position + Q1/Q2/Q3 seconds), straight from the API. Not cached:
+    it's used live, right after the session."""
+    races = _get(f"{BASE}/{season}/{rnd}/qualifying.json", {"limit": 100})["RaceTable"]["Races"]
+    if not races:
+        raise SystemExit(f"No qualifying published yet for {season} round {rnd}.")
+    return pd.DataFrame([{
+        "driver_id": r["Driver"]["driverId"], "driver": r["Driver"].get("code", r["Driver"]["driverId"][:3].upper()),
+        "driver_name": f'{r["Driver"]["givenName"]} {r["Driver"]["familyName"]}',
+        "team_id": r["Constructor"]["constructorId"], "team": r["Constructor"]["name"],
+        "quali": int(r["position"]), "q1": _secs(r.get("Q1")), "q2": _secs(r.get("Q2")), "q3": _secs(r.get("Q3")),
+    } for r in races[0]["QualifyingResults"]])
 
 
 def validate(df: pd.DataFrame) -> None:

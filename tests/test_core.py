@@ -19,6 +19,8 @@ def fake_results(seasons=(2024, 2025), rounds=4, n=10, seed=0):
                                  date=pd.Timestamp(s, 1, 1) + pd.Timedelta(days=7 * r), is_sprint_weekend=False,
                                  driver_id=f"d{d}", driver=f"D{d}", driver_name=f"Driver {d}",
                                  team_id=f"t{d // 2}", team=f"T{d // 2}", grid=grid[d], quali=grid[d],
+                                 q1=90 + grid[d] * 0.1, q2=89.5 + grid[d] * 0.1 if grid[d] <= 15 else np.nan,
+                                 q3=89 + grid[d] * 0.1 if grid[d] <= 10 else np.nan,
                                  pitlane_start=False, finish=finish[d], points=max(0, 11 - finish[d]), sprint_points=0.0,
                                  status="Finished", classified=str(finish[d]), dnf=False))
     return pd.DataFrame(rows)

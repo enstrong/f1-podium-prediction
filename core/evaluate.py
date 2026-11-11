@@ -41,6 +41,21 @@ def walk_forward(results: pd.DataFrame, predictor: Predictor, visible_cols: list
     return pd.DataFrame(rows)
 
 
+def bootstrap_ci(x, n: int = 2000, seed: int = 0) -> float:
+    """Half-width of a 95% bootstrap CI for the mean of x (resampling races)."""
+    x = np.asarray(x, dtype=float)
+    means = np.random.default_rng(seed).choice(x, (n, len(x))).mean(axis=1)
+    return float((np.percentile(means, 97.5) - np.percentile(means, 2.5)) / 2)
+
+
+def paired_diff(per_race: pd.DataFrame, a: str, b: str, metric: str = "winner_mrr") -> tuple:
+    """Mean of (a - b) over the same races, with its 95% CI half-width.
+    Much tighter than comparing two separate CIs: race-to-race noise cancels out."""
+    w = per_race.pivot_table(index=["season", "round"], columns="model", values=metric)
+    d = w[a] - w[b]
+    return float(d.mean()), bootstrap_ci(d)
+
+
 def compare(results: pd.DataFrame, predictors: dict, visible_cols: list, **kw) -> pd.DataFrame:
     """Mean of every metric for each predictor. Returns (summary, per_race)."""
     per_race, summary = [], {}
@@ -50,7 +65,8 @@ def compare(results: pd.DataFrame, predictors: dict, visible_cols: list, **kw) -
             raise SystemExit(f"No races to score for {kw}. Is the data pulled? Seasons in data: "
                              f"{sorted(results['season'].unique())}")
         per_race.append(df)
-        summary[name] = df[METRICS].mean().round(3).to_dict() | {"races": len(df)}
+        summary[name] = (df[METRICS].mean().round(3).to_dict()
+                         | {"mrr_ci95": round(bootstrap_ci(df["winner_mrr"]), 3), "races": len(df)})
     return pd.DataFrame(summary).T, pd.concat(per_race, ignore_index=True)
 
 
@@ -74,3 +90,6 @@ def cli(predictors: dict, visible_cols: list, out_dir) -> None:
     summary.to_csv(out / f"{tag}_summary.csv")
     print(f"\n{tag} | seasons {a.seasons}\n")
     print(summary.sort_values("winner_mrr", ascending=False).to_string())
+    print("\nwinner_mrr by season:\n")
+    print(per_race.pivot_table(index="model", columns="season", values="winner_mrr").round(2)
+          .loc[summary.sort_values("winner_mrr", ascending=False).index].to_string())
