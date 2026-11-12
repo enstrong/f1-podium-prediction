@@ -51,6 +51,24 @@ The evaluator passes the predictor only the columns allowed for its mode
 **Holdout:** 2026 US, Mexico City, São Paulo GPs are excluded from tuning. Score them once at the end:
 `... baselines.py --holdout`. Then the real test is Las Vegas, Qatar, Abu Dhabi.
 
+## Model 2: LightGBM LambdaRank (`core/lambdarank.py`)
+
+Same features, same races, different model: a sum of small decision trees trained with the LambdaRank
+objective (pairwise "i finished ahead of j" gradients, weighted by how much swapping them would change NDCG@3).
+It can learn interactions and thresholds by itself instead of one straight-line weight per feature.
+Model 1 is untouched and keeps producing its own predictions.
+
+```bash
+python pre-weekend/lambdarank.py      # model 2 vs model 1 vs baselines, paired
+python post-quali/lambdarank.py
+python -m core.sweep --mode pre --base model='"lgbm"' --only n_trees num_leaves
+python predict.py pre --model lgbm    # -> predictions/..._pre_lgbm.md (model 1 files keep their names)
+```
+
+Env note: install LightGBM from conda-forge (`conda install -c conda-forge lightgbm`). With pip's torch in the
+same env both ship an OpenMP runtime and Python aborts ("libomp already initialized"); the fix used here is to
+point `torch/lib/libomp.dylib` at the env's `lib/libomp.dylib` (original kept as `libomp.dylib.torch-orig`).
+
 ## Live predictions
 
 ```bash

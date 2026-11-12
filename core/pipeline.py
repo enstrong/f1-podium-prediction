@@ -15,6 +15,7 @@ from .config import EVAL_SEASONS, POST_QUALI_COLS, PRE_WEEKEND_COLS
 from .evaluate import compare, paired_diff
 from .plackett_luce import DEFAULT_MODEL_PARAMS, PlackettLuce
 from .ridge import Ridge
+from .lambdarank import DEFAULT_LGBM_PARAMS, LambdaRank
 
 MODES = {
     "pre": {"cols": PRE_WEEKEND_COLS, "features": features.FEATURES},
@@ -25,12 +26,23 @@ PARAMS = {
     **features.DEFAULT_FEATURE_PARAMS,   # half_life, season_carry, reg_carry, shrink, circuit_shrink
     **DEFAULT_MODEL_PARAMS,              # top_k, l2, lr, epochs, train_seasons, recency_half_life
     "drop": [],                          # feature names to leave out (ablation)
-    "model": "pl",                       # "pl" (listwise ranking loss) or "ridge" (pointwise squared error)
+    "model": "pl",                       # "pl" = model 1, "lgbm" = model 2 (LightGBM LambdaRank), "ridge"
     "alpha": 10.0,                       # ridge only: L2 strength
     "ridge_target": "perf",              # ridge only: "perf" (1 = won .. 0 = last) or "points"
 }
 # Best settings from the first pre-weekend sweep (l2, top_k both beat the default on 169 races).
 PARAMS.update({"l2": 0.1, "top_k": 2})
+# Model 2's own knobs. Adding them changes nothing for model 1 (it never reads them).
+PARAMS.update({k: v for k, v in DEFAULT_LGBM_PARAMS.items() if k not in PARAMS})
+
+MODEL_NAMES = {"pl": "plackett_luce", "lgbm": "lgbm_lambdarank", "ridge": "ridge"}
+
+
+def relevant_params(p: dict) -> dict:
+    """The params that actually affect this model (for logs / prediction files)."""
+    own = {"pl": DEFAULT_MODEL_PARAMS, "lgbm": DEFAULT_LGBM_PARAMS, "ridge": {"alpha": 0, "ridge_target": 0}}[p["model"]]
+    keys = list(features.DEFAULT_FEATURE_PARAMS) + list(own) + ["drop", "model"]
+    return {k: p[k] for k in keys if k not in ("lr", "epochs")}
 
 
 def make_predictor(params: dict | None = None, mode: str = "pre"):
@@ -45,9 +57,12 @@ def make_predictor(params: dict | None = None, mode: str = "pre"):
         train, target = both.iloc[:len(hist)], both.iloc[len(hist):]
         if p["model"] == "ridge":
             m = Ridge(feats, alpha=p["alpha"], target=p["ridge_target"], train_seasons=p["train_seasons"])
+        elif p["model"] == "lgbm":
+            m = LambdaRank(feats, **p)
         else:
             m = PlackettLuce(feats, **model_p)
         predict.model = m.fit(train)
+        predict.train = train
         return predict.model.score(target)
 
     return predict
@@ -64,10 +79,10 @@ def parse_set(items: list) -> dict:
 
 
 def p_name(params: dict) -> str:
-    return "ridge" if (PARAMS | params)["model"] == "ridge" else "plackett_luce"
+    return MODEL_NAMES[(PARAMS | params)["model"]]
 
 
-def cli(mode: str, baselines: dict, out_dir) -> None:
+def cli(mode: str, baselines: dict, out_dir, defaults: dict | None = None) -> None:
     a = argparse.ArgumentParser()
     a.add_argument("--set", nargs="*", default=[], help='override params, e.g. half_life=10 drop=\'["track_perf"]\'')
     a.add_argument("--seasons", type=int, nargs="+", default=EVAL_SEASONS)
@@ -77,23 +92,24 @@ def cli(mode: str, baselines: dict, out_dir) -> None:
 
     from .data import load
 
-    params = parse_set(args.set)
+    params = (defaults or {}) | parse_set(args.set)
     pl = make_predictor(params, mode)
     summary, per_race = compare(load(), {p_name(params): pl, **baselines}, MODES[mode]["cols"],
                                 seasons=args.seasons, holdout=args.holdout)
     out = Path(out_dir) / "reports"
     out.mkdir(exist_ok=True)
     tag = "holdout" if args.holdout else "walkforward"
-    per_race.to_csv(out / f"pl_{tag}_per_race.csv", index=False)
+    per_race.to_csv(out / f"{p_name(params)}_{tag}_per_race.csv", index=False)
 
-    print(f"\n{mode} | {tag} | seasons {args.seasons} | params {PARAMS | params}\n")
+    print(f"\n{mode} | {tag} | seasons {args.seasons} | params {relevant_params(PARAMS | params)}\n")
     print(summary.sort_values("winner_mrr", ascending=False).to_string())
     print("\nwinner_mrr by season:\n")
     print(per_race.pivot_table(index="model", columns="season", values="winner_mrr").round(2).to_string())
     for base in baselines:
         d, ci = paired_diff(per_race, p_name(params), base)
         print(f"\n{p_name(params)} - {base}: winner_mrr {d:+.3f} ± {ci:.3f} (95% CI, paired over the same races)", end="")
-    print("\n\nweights from the last fit (standardized features, + = helps you win):\n")
+    print("\n\nfrom the last fit: " + ("feature importance (share of total gain, no sign)" if p_name(params) == "lgbm_lambdarank"
+          else "weights (standardized features, + = helps you win)") + ":\n")
     print(pl.model.weights().round(3).to_string())
     if args.show_loss:
         h = pl.model.history

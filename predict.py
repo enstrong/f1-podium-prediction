@@ -4,6 +4,7 @@
     python predict.py post                    # after quali: pulls that round's qualifying from the API
     python predict.py post --grid VER=20 LEC=15   # apply grid penalties announced after quali
     python predict.py pre --round 21 --swap doohan=colapinto   # entry-list change vs last race
+    python predict.py pre --model lgbm        # model 2 (LightGBM LambdaRank) -> ..._pre_lgbm.md
 
 Then commit the file BEFORE the session starts: the commit timestamp is the proof.
 
@@ -24,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 from core import data
-from core.pipeline import MODES, PARAMS, make_predictor
+from core.pipeline import MODES, PARAMS, make_predictor, relevant_params
 
 ROOT = Path(__file__).parent
 N_SAMPLES = 20_000
@@ -82,6 +83,7 @@ def main():
     a.add_argument("--round", type=int, help="default: the first calendar round with no result in the data")
     a.add_argument("--grid", nargs="*", default=[], help="post only: DRV=slot overrides, e.g. VER=20 (0 = pit lane)")
     a.add_argument("--swap", nargs="*", default=[], help="pre only: old_driver_id=new_driver_id")
+    a.add_argument("--model", choices=["pl", "lgbm"], default="pl", help="pl = model 1, lgbm = model 2")
     a.add_argument("--out", type=Path, default=ROOT / "predictions")
     a.add_argument("--force", action="store_true", help="overwrite an existing prediction file")
     args = a.parse_args()
@@ -97,12 +99,20 @@ def main():
 
     race = build_race(args.mode, event, hist, dict(x.split("=") for x in args.grid),
                       dict(x.split("=") for x in args.swap))
-    predict = make_predictor({}, args.mode)
+    params = PARAMS | {"model": args.model}
+    predict = make_predictor({"model": args.model}, args.mode)
     s = predict(hist, race)
+    T = 1.0
+    if args.model == "lgbm":
+        # LambdaRank scores only order drivers; their scale isn't a probability. One temperature,
+        # fitted on the last 30 races held out from a separate fit, turns them into P(win).
+        T = predict.model.calibrate(predict.train)
+        s = s / T
     p_win = np.exp(s - s.max()); p_win /= p_win.sum()
     out = race.assign(p_win=p_win, p_podium=podium_odds(s)).sort_values("p_win", ascending=False).reset_index(drop=True)
 
-    path = args.out / f"{args.season}_R{rnd:02d}_{event['circuit_id']}_{args.mode}.md"
+    suffix = "" if args.model == "pl" else f"_{args.model}"
+    path = args.out / f"{args.season}_R{rnd:02d}_{event['circuit_id']}_{args.mode}{suffix}.md"
     if path.exists() and not args.force:
         raise SystemExit(f"{path} already exists - a committed prediction shouldn't be rewritten (use --force).")
     last = hist.sort_values(["season", "round"]).iloc[-1]
@@ -113,9 +123,11 @@ def main():
         f"- Generated: {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC, race date {event['date']:%Y-%m-%d}",
         f"- Data through: {int(last['season'])} R{int(last['round'])} {last['event']}",
         f"- Code: {git_state()}",
-        "- Scope: first model, built only from previous race and qualifying results. It does NOT use "
+        f"- Scope: {'first model' if args.model == 'pl' else 'model 2'}, built only from previous race and qualifying results. It does NOT use "
         "weather, tyre strategy, practice pace, upgrades or many other things that decide races.",
-        f"- Model: Plackett-Luce, params {({k: v for k, v in PARAMS.items() if k not in ('lr', 'epochs')})}",
+        "- Model: " + ("model 1, Plackett-Luce" if args.model == "pl" else
+                       f"model 2, LightGBM LambdaRank (P(win) = softmax(score / T), T = {T:.3f} fitted on held-out races)")
+        + f", params {relevant_params(params)}",
         "",
         f"**Podium pick: {' / '.join(out['driver'][:3])}**",
         "",

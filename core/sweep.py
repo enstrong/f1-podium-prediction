@@ -34,7 +34,13 @@ GRID = {
     "half_life_fast": [1, 3, 4],
     "track_shrink": [0.5, 5.0, 20.0],
     "chaos_form": [0.5, 0.9],
-    "chaos_loss": [0.5, 0.9],  # 1000 = "every circuit is the same"
+    "chaos_loss": [0.5, 0.9],
+    # model 2 (use with --base model=\"lgbm\")
+    "n_trees": [50, 100, 400],
+    "lgbm_lr": [0.02, 0.1],
+    "num_leaves": [3, 15],
+    "min_child_samples": [5, 50],
+    "labels": ["top6"],  # 1000 = "every circuit is the same"
 }
 FOLDER = {"pre": "pre-weekend", "post": "post-quali"}
 
@@ -55,14 +61,18 @@ if __name__ == "__main__":
     a.add_argument("--mode", choices=list(MODES), default="pre")
     a.add_argument("--only", nargs="*", default=list(GRID) + ["drop"])
     a.add_argument("--seasons", type=int, nargs="+", default=EVAL_SEASONS)
+    a.add_argument("--base", nargs="*", default=[], help='params of the reference config, e.g. model=\\"lgbm\\"')
     a.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     args = a.parse_args()
 
+    from core.pipeline import parse_set
+    base = parse_set(args.base)
     grid = GRID | {"drop": [[f] for f in MODES[args.mode]["features"]]}
-    jobs = [("default", {}, args.seasons, args.mode)]
+    jobs = [("default", base, args.seasons, args.mode)]
     for k in args.only:
-        jobs += [(f"{k}={v}", {k: v}, args.seasons, args.mode) for v in grid[k] if v != PARAMS.get(k)]
-    tag = "all" if args.seasons == EVAL_SEASONS else "_".join(map(str, args.seasons))
+        jobs += [(f"{k}={v}", base | {k: v}, args.seasons, args.mode) for v in grid[k] if v != (PARAMS | base).get(k)]
+    tag = ("all" if args.seasons == EVAL_SEASONS else "_".join(map(str, args.seasons))) \
+        + ("_" + "_".join(f"{k}-{v}" for k, v in base.items()) if base else "")
     print(f"{len(jobs)} configs x walk-forward over seasons {args.seasons} on {args.workers} workers...")
 
     results = {}

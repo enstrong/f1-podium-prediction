@@ -111,3 +111,15 @@ def test_chaos_score_flags_shuffled_races_and_is_causal():
     assert c[6] == c.max()                                   # the lottery race
     c2 = features.chaos_score(np.append(rho[:7], -1.0), np.full(8, 0.75))
     assert np.allclose(c[:7], c2[:7])                        # later races can't change earlier scores
+
+
+def test_lambdarank_learns_and_calibrates():
+    from core.lambdarank import LambdaRank
+    res = fake_results(seasons=(2021, 2022, 2023), rounds=12, n=10, seed=7)
+    df = pd.concat([res, features.build(res)], axis=1)
+    m = LambdaRank(features.POST_QUALI_FEATURES, n_trees=50, min_child_samples=5).fit(df)
+    race = df[(df.season == 2023) & (df["round"] == 12)]
+    s = m.score(race)
+    assert s.shape == (len(race),) and np.isfinite(s).all()
+    assert m.weights().index[0] in ("grid_perf", "grid_x_rho", "grid_x_pole", "qgap")  # fake finishes follow the grid
+    assert 0.05 <= m.calibrate(df, last_n=8) <= 20
